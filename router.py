@@ -4,21 +4,24 @@ import socket
 def parse_packet(IP_packet: bytes):
     ip_bytes = IP_packet[:4]
     puerto_bytes = IP_packet[4:6]
-    mensaje_bytes = IP_packet[6:]
+    ttl_bytes = IP_packet[6:7]
+    mensaje_bytes = IP_packet[7:]
 
     ip = ".".join(map(str, ip_bytes))
     puerto = int.from_bytes(puerto_bytes, byteorder="big")
+    ttl = int.from_bytes(ttl_bytes, byteorder="big")
     mensaje = mensaje_bytes.decode("utf-8")
 
-    return (ip, puerto, mensaje)
+    return (ip, puerto, ttl, mensaje)
 
 def create_packet(parsed_IP_packet):
-    ip, puerto, mensaje = parsed_IP_packet
+    ip, puerto, ttl, mensaje = parsed_IP_packet
     ip_bytes = bytes(map(int, ip.split(".")))
     puerto_bytes = puerto.to_bytes(2, byteorder="big")
+    ttl_bytes = ttl.to_bytes(1, byteorder="big")
     mensaje_bytes = mensaje.encode("utf-8")
 
-    return ip_bytes + puerto_bytes + mensaje_bytes
+    return ip_bytes + puerto_bytes + ttl_bytes + mensaje_bytes
 
 indices_rutas = {}
 
@@ -75,7 +78,11 @@ print(f"Router escuchando en {router_ip}:{router_puerto}")
 while True:
     packet, sender_address = sock.recvfrom(4096)
 
-    ip_destino, puerto_destino, mensaje = parse_packet(packet)
+    ip_destino, puerto_destino, ttl, mensaje = parse_packet(packet)
+
+    if ttl == 0:
+        print(f"Se recibió paquete {packet} con TTL 0")
+        continue
 
     if (ip_destino, puerto_destino) == (router_ip, router_puerto):
         print(mensaje)
@@ -84,7 +91,10 @@ while True:
         next_hop = check_routes(router_rutas, destination_address)
 
         if next_hop is not None:
+            ttl = ttl - 1
+            packet = create_packet((ip_destino, puerto_destino, ttl, mensaje))
             sock.sendto(packet, next_hop)
             print(f"redirigiendo paquete {packet} con destino final {destination_address} desde {(router_ip, router_puerto)} hacia {next_hop}")
+            
         else:
             print(f"No hay rutas hacia {destination_address} para paquete {packet}")
